@@ -1,0 +1,10 @@
+1
+Trigger updateFields on Test_Object__c (before update){
+2
+  for (Test_Object__c obj: trigger.new){
+3
+    field_1__c = field_2__c;
+4
+  }
+5
+}
