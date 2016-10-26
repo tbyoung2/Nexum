@@ -1,0 +1,139 @@
+public with sharing class OpportunityCloneController
+{
+ public String opportunityId {get; set;}
+ public OpportunityCloneController()
+{
+opportunityId = ApexPages.currentPage().getParameters().get('oppId');
+}
+public PageReference startCloning()
+{
+String oppId = cloneOpportunityWithQuotes();
+PageReference pg = new PageReference('/' + oppId);
+pg.setRedirect(true);
+return pg;
+}
+public String cloneOpportunityWithQuotes()
+{
+Savepoint sp = Database.setSavepoint();
+try
+{
+Opportunity newOpp = cloneOppty();
+//CreateQuote, Create Opportunity Line items
+boolean createOpptyProd = cloneQuoteIfSynced(newOpp);
+if(createOpptyProd)
+{
+cloneOpportunityLineItem(newOpp);
+}
+return newOpp.Id;
+}
+catch(Exception e)
+{
+// roll everything back in case of error
+Database.rollback(sp);
+ApexPages.addMessages(e);
+return null;
+}
+return null;
+}
+private Opportunity cloneOppty()
+{
+String opportunityQuery = '';
+Map<String, Schema.SObjectField> opportunityFields = Schema.SObjectType.Opportunity.Fields.getMap();
+for(String fld: opportunityFields.keySet())
+{
+if(opportunityQuery.length() != 0)
+{
+opportunityQuery += ',';
+}
+opportunityQuery += fld;
+}
+String queryString = 'SELECT ' + opportunityQuery + ' FROM Opportunity where Id = \'' + opportunityId + '\'';
+Opportunity oldOpp = Database.query(queryString);
+Opportunity newOpp = oldOpp.clone(false, true);
+newOpp.Name = oldOpp.Name + ' - Cloned';
+insert newOpp;
+return newOpp;
+}
+private boolean cloneQuoteIfSynced(Opportunity opp)
+{
+String syncQuoteQuery = '';
+boolean hasOpptyLineItems = false;
+Map<String, Schema.SObjectField> syncQuoteFields = Schema.SObjectType.Quote.Fields.getMap();
+for(String fld: syncQuoteFields.keySet())
+{
+if(syncQuoteQuery.length() != 0)
+{
+syncQuoteQuery += ',';
+}
+syncQuoteQuery += fld;
+}
+String queryString = 'SELECT ' + syncQuoteQuery + ' FROM Quote where IsSyncing = true and OpportunityId = \'' + opportunityId + '\'';
+List<Quote> oldQuoteLst = Database.query(queryString);
+List<Quote> newQuoteLst = new List<Quote>();
+ for(Quote oldQuote : oldQuoteLst)
+{
+Quote newQuote = oldQuote.clone(false, true);
+newQuote.OpportunityId = opp.Id;
+newQuote.Name = oldQuote.Name + '- Cloned';
+newQuoteLst.add(newQuote);
+}
+insert newQuoteLst;
+ if(newQuoteLst.size() > 0)
+{
+//Create quote line items as well
+String syncQuoteLineItemQuery = '';
+Map<String, Schema.SObjectField> syncQuoteLineItemsFields = Schema.SObjectType.QuoteLineItem.Fields.getMap();
+for(String fld: syncQuoteLineItemsFields.keySet())
+{
+if(syncQuoteLineItemQuery.length() != 0)
+{
+syncQuoteLineItemQuery += ',';
+}
+syncQuoteLineItemQuery += fld;
+}
+String oldQuoteId = oldQuoteLst[0].Id;
+String newQuoteId = newQuoteLst[0].Id;
+hasOpptyLineItems = true;
+String queryString1 = 'SELECT ' + syncQuoteLineItemQuery + ' FROM QuoteLineItem where QuoteId = \'' + oldQuoteId + '\'';
+List<QuoteLineItem> oldQuoteLineItemLst = Database.query(queryString1);
+List<QuoteLineItem> newQuoteLineItemLst = new List<QuoteLineItem>();
+
+for(QuoteLineItem oldQuoteLineItem : oldQuoteLineItemLst)
+{
+QuoteLineItem newQuoteLineItem = oldQuoteLineItem.clone(false, true);
+newQuoteLineItem.QuoteId = newQuoteId;
+newQuoteLineItemLst.add(newQuoteLineItem);
+}
+insert newQuoteLineItemLst;
+return hasOpptyLineItems;
+}
+return hasOpptyLineItems;
+}
+private void cloneOpportunityLineItem(Opportunity opp)
+{
+String optliQuery = '';
+Map<String, Schema.SObjectField> optliFields = Schema.SObjectType.OpportunityLineItem.Fields.getMap();
+for(String fld: optliFields.keySet())
+{
+if(fld.equalsIgnoreCase('TotalPrice'))
+{
+continue;
+}
+ if(optliQuery.length() != 0)
+{
+optliQuery += ',';
+}
+optliQuery += fld;
+}
+String queryString = 'SELECT ' + optliQuery + ' FROM OpportunityLineItem where OpportunityId = \'' + opportunityId + '\'';
+List<OpportunityLineItem> oldOppLineItemLst = Database.query(queryString);
+List<OpportunityLineItem> newOppLineItemLst = new List<OpportunityLineItem>();
+ for(OpportunityLineItem oldOppLineItem : oldOppLineItemLst)
+{
+OpportunityLineItem newOppLineItem = oldOppLineItem.clone(false, true);
+newOppLineItem.OpportunityId = opp.Id;
+newOppLineItemLst.add(newOppLineItem);
+}
+insert newOppLineItemLst;
+}
+}
